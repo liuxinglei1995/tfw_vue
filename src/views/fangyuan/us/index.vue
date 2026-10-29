@@ -893,7 +893,7 @@
                   </el-form-item>
                 </el-card>
 
-                <el-tabs v-model="form.type" v-if="form.type">
+                <el-tabs v-model="form.type" v-if="form.type" @tab-click="onTypeChange">
                   <el-tab-pane :name="dictitem.value" v-for="   dictitem    in      dict.type.tfw_rent_sale     "
                     :key="dictitem.value" :label="dictitem.label">
                     <!-- 售卖 -->
@@ -1363,8 +1363,8 @@
                     :label="dict.label" :value="dict.value"></el-option>
                 </el-select>
               </el-form-item>
-              <el-form-item label="推荐人" prop="params.person" size="mini">
-                <el-input v-model="form.params.person" placeholder="请输入推荐人" style="width:120px" />
+              <el-form-item label="推荐人" prop="recommender" size="mini">
+                <el-input v-model="form.recommender" placeholder="请输入推荐人" style="width:120px" />
               </el-form-item>
               <el-form-item label="看房方式" prop="kfang" size="mini">
                 <el-select v-model="form.kfang" placeholder="看房方式">
@@ -1492,6 +1492,8 @@ import {
   listHuxing,
   ifFangYuan, updateUserHouse, getuserHouseList
 } from '@/api/fangyuan/fangyuan'
+// 推荐人后端不存房源字段，只生成一条"XX推荐房源"的跟进记录，编辑时靠它回填
+import { listFollow } from '@/api/system/follow'
 import {
   getTransferList
 } from '@/api/fangyuan/transfer'
@@ -1830,6 +1832,7 @@ export default {
       // 表单参数
       form: {
         propertyType: [],
+        recommender: null,
       },
       formxq: {
         id: null,
@@ -1894,7 +1897,7 @@ export default {
           { required: true, message: "租售类型不能为空", trigger: "change" },
         ],
         propertyType: [
-          { required: false, message: "物业类型不能为空", trigger: "change" },
+          { required: true, message: "物业类型不能为空", trigger: "change" },
         ],
         propertyArea: [
           { required: true, message: "产权面积不能为空", trigger: "blur" },
@@ -2904,6 +2907,12 @@ export default {
       getFangyuan(id).then(response => {
         this.form = response.data
         if(this.form.params === undefined) this.form.params = {person: ''}
+        // 历史房源没有 recommender 字段，为空时从"XX推荐房源"的跟进记录里兜底回填
+        if (!this.form.recommender) this.loadRecommender(id)
+        // 是否公盘：没有值时按租售类型给默认（出租=公盘，其余=私盘）
+        if (!this.form.ifPublic) {
+          this.form.ifPublic = this.form.type == '2' ? '1' : '0'
+        }
         if (response.data.phoneNumber) {
           this.phoneNumbercopy = JSON.parse(response.data.phoneNumber)
         }
@@ -2924,6 +2933,33 @@ export default {
         this.title = '修改房源'
       })
 
+    },
+
+    /**
+     * 租售类型切换时重置"是否公盘"的默认值：
+     * 出租(type=2) 默认公盘(ifPublic=1)，其余类型默认私盘(ifPublic=0)。
+     * 字典 twf_rent_sale：1 售卖 / 2 出租 / 3 租售同步；twf_sfgp：1 公盘 / 0 私盘
+     */
+    onTypeChange(tab) {
+      const type = tab && tab.name != null ? String(tab.name) : String(this.form.type)
+      this.form.ifPublic = type === '2' ? '1' : '0'
+    },
+
+    /**
+     * 历史数据兜底回填推荐人。
+     * 推荐人现在是房源字段 recommender，新数据直接读得到；
+     * 老房源没有这个字段，只能从当初保存时生成的"XX推荐房源"跟进记录里还原。
+     */
+    loadRecommender(houseId) {
+      // pageNum/pageSize 必须传：后端这两个字段是基本类型 int，缺省会取 0 导致查不到数据
+      listFollow({ houseId: houseId, pageNum: 1, pageSize: 100 })
+        .then(res => {
+          const rows = (res && res.rows) || []
+          const hit = rows.find(r => r.type === '1' && /推荐房源$/.test(r.remark || ''))
+          if (!hit) return
+          this.$set(this.form, 'recommender', hit.remark.replace(/推荐房源$/, ''))
+        })
+        .catch(() => {})
     },
 
     /** 删除按钮操作 */

@@ -1,8 +1,8 @@
 <template>
   <div class="app-container">
     <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch">
-      <el-form-item label="用户ID" prop="userId">
-        <el-input v-model="queryParams.userId" placeholder="请输入用户ID" clearable style="width:150px" @keyup.enter.native="handleQuery" />
+      <el-form-item label="用户名称" prop="nickName">
+        <el-input v-model="queryParams.nickName" placeholder="请输入用户姓名或手机号" clearable style="width:180px" @keyup.enter.native="handleQuery" />
       </el-form-item>
       <el-form-item label="企业微信ID" prop="wxUserId">
         <el-input v-model="queryParams.wxUserId" placeholder="请输入企业微信ID" clearable style="width:180px" @keyup.enter.native="handleQuery" />
@@ -25,7 +25,7 @@
 
     <el-table v-loading="loading" :data="bindList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
-      <el-table-column label="用户ID" align="center" prop="userId" />
+      <el-table-column label="用户名称" align="center" prop="nickName" />
       <el-table-column label="企业微信ID" align="center" prop="wxUserId" />
       <el-table-column label="状态" align="center" width="100">
         <template slot-scope="scope">
@@ -47,8 +47,27 @@
 
     <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="用户ID" prop="userId">
-          <el-input v-model="form.userId" placeholder="请输入本系统用户ID" />
+        <el-form-item label="用户名称" prop="userId">
+          <el-select
+            v-model="form.userId"
+            placeholder="请输入姓名、账号或手机号搜索"
+            filterable
+            remote
+            clearable
+            :remote-method="searchUser"
+            :loading="userLoading"
+            style="width:100%"
+          >
+            <el-option
+              v-for="item in userOptions"
+              :key="item.userId"
+              :label="item.nickName + (item.phonenumber ? ' (' + item.phonenumber + ')' : '')"
+              :value="item.userId"
+            >
+              <span>{{ item.nickName }}</span>
+              <span style="float:right;color:#8492a6;font-size:12px">{{ item.dept ? item.dept.deptName : '' }}</span>
+            </el-option>
+          </el-select>
         </el-form-item>
         <el-form-item label="企业微信ID" prop="wxUserId">
           <el-input v-model="form.wxUserId" placeholder="请输入企业微信成员ID" />
@@ -70,6 +89,7 @@
 
 <script>
 import { listWxUserBind, getWxUserBind, addWxUserBind, updateWxUserBind, delWxUserBind } from "@/api/system/wxUserBind";
+import { listUserByDeptAndChild } from "@/api/system/user";
 
 export default {
   name: "WxUserBind",
@@ -84,15 +104,18 @@ export default {
       bindList: [],
       open: false,
       title: "",
+      // 用户下拉搜索
+      userOptions: [],
+      userLoading: false,
       queryParams: {
         pageNum: 1,
         pageSize: 10,
-        userId: null,
+        nickName: null,
         wxUserId: null
       },
       form: {},
       rules: {
-        userId: [{ required: true, message: "用户ID不能为空", trigger: "blur" }],
+        userId: [{ required: true, message: "请选择用户", trigger: "change" }],
         wxUserId: [{ required: true, message: "企业微信ID不能为空", trigger: "blur" }]
       }
     };
@@ -122,6 +145,19 @@ export default {
       this.resetForm("queryForm");
       this.handleQuery();
     },
+    // 按姓名远程搜索用户（复用 /system/user/listByDeptAndChild）
+    searchUser(keyword) {
+      if (!keyword) {
+        this.userOptions = [];
+        return;
+      }
+      this.userLoading = true;
+      listUserByDeptAndChild({ pageNum: 1, pageSize: 20, nickName: keyword, status: 0 }).then(response => {
+        this.userOptions = response.rows || [];
+      }).finally(() => {
+        this.userLoading = false;
+      });
+    },
     reset() {
       this.form = {
         id: null,
@@ -129,6 +165,7 @@ export default {
         wxUserId: null,
         status: 1
       };
+      this.userOptions = [];
       this.resetForm("form");
     },
     handleAdd() {
@@ -141,6 +178,13 @@ export default {
       const id = row.id || this.ids;
       getWxUserBind(id).then(response => {
         this.form = response.data;
+        // 回显：把当前用户补进下拉选项，否则 el-select 只会显示一个孤零零的 userId
+        this.userOptions = [{
+          userId: row.userId,
+          nickName: row.nickName || ("用户ID " + row.userId),
+          phonenumber: null,
+          dept: null
+        }];
         this.open = true;
         this.title = "修改绑定";
       });

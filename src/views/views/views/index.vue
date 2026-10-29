@@ -29,6 +29,12 @@
           <el-option label="租买同时存在" value="3"></el-option>
         </el-select>
       </el-form-item>
+      <el-form-item label="客户类型" prop="remarkType">
+        <el-select v-model="queryParams.remarkType" placeholder="客户/中介" clearable style="width:140px">
+          <el-option label="客户" value="客户"></el-option>
+          <el-option label="中介" value="中介"></el-option>
+        </el-select>
+      </el-form-item>
       <el-form-item label="日期范围" label-width="90px">
         <el-date-picker
           v-model="dateRange"
@@ -75,30 +81,29 @@
     </el-row>
 
     <el-table v-loading="loading" :data="viewsList">
-      <el-table-column label="用户手机号" align="center" prop="sysUser.phonenumber" >
+      <el-table-column label="用户手机号" align="center" prop="sysUser.phonenumber" width="140">
         <template slot-scope="scope">
           <div v-if="scope.row.phonenumber !== ''">
-            <div v-if="scope.row.myHouses.length>0 || scope.row.tfwSourceTourists.length>0">
+            <span v-if="scope.row.myHouses.length>0 || scope.row.tfwSourceTourists.length>0">
               {{ phoneNumberParts(scope.row.sysUser.phonenumber)}}
-            </div>
-            <div v-else>
+            </span>
+            <span v-else>
               {{scope.row.sysUser.phonenumber}}
-            </div>
-            <div v-if="scope.row.params">
-              {{scope.row.params.phoneRegionCode}}
-            </div>
-            <div v-if="scope.row.tfwSourceTourists.length>0">
-              <div v-for="(item,index) in scope.row.tfwSourceTourists" :key="index">
-                 {{item.nickName}}
-                <div v-for="(item1,index1) in JSON.parse(item.customer) " :key="index1">
-                  {{item1.name}}
-                </div>
-              </div>
-            </div>
+            </span>
           </div>
           <div v-else>
             未授权用户
           </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="地址" align="center" width="140">
+        <template slot-scope="scope">
+          <span v-if="scope.row.params">{{scope.row.params.phoneRegionCode}}</span>
+        </template>
+      </el-table-column>
+       <el-table-column label="用户名称" align="center" width="180">
+        <template slot-scope="scope">
+          <div v-for="(name, index) in userNames(scope.row)" :key="index">{{ name }}</div>
         </template>
       </el-table-column>
       <el-table-column label="客户类型" align="center" width="180">
@@ -118,10 +123,10 @@
       <el-table-column label="领取人" align="center" width="180">
         <template slot-scope="scope">
           <span v-if="scope.row.tfwSourceTourists.length>0">
-            <el-tag>{{nickNameParts(scope.row.tfwSourceTourists[0].nickName)}}</el-tag>
+            <el-tag>{{scope.row.tfwSourceTourists[0].nickName}}</el-tag>
           </span>
           <span v-if="scope.row.myHouses.length>0">
-            <el-tag>{{nickNameParts(scope.row.myHouses[0].createByName)}}(业主)</el-tag>
+            <el-tag>{{scope.row.myHouses[0].createByName}}(业主)</el-tag>
           </span>
         </template>
       </el-table-column>
@@ -245,7 +250,11 @@
         <el-table v-loading="loading" :data="remarkList">
           <el-table-column label="编号" align="center" prop="id" width="50px" />
           <el-table-column label="沟通人" align="center" prop="user.nickName" width="150px"/>
-          <el-table-column label="沟通时间" align="center" prop="interactDate" width="250px" />
+          <el-table-column label="沟通时间" align="center" width="180">
+            <template slot-scope="scope">
+              <span v-if="scope.row.interactDate">{{ format(scope.row.interactDate, 'yyyy-MM-dd HH:mm:ss') }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="沟通内容" align="center" prop="interact" />
         </el-table>
         <pagination
@@ -420,7 +429,7 @@
 <script>
 import { listViews, delViews, listPhoneData } from '@/api/views/views'
 import {listViewsRemark, addViewsRemark} from '@/api/views/viewsRemark'
-import { format, phoneNumberParts, nickNameParts } from '@/utils/activiti/myUtil';
+import { format, phoneNumberParts } from '@/utils/activiti/myUtil';
 import { addTourists } from "@/api/source/tourists";
 import Dict from '@/views/system/dict/index.vue'
 import { getlist } from '@/api/province'
@@ -455,10 +464,11 @@ export default {
       // 查询参数
       queryParams: {
         pageNum: 1,
-        pageSize: 20,
+        pageSize: 10,
         userId: null,
         pageId: null,
         type: null,
+        remarkType: null,
         beginTime: null,
         endTime: null,
         phonenumber: null,
@@ -575,7 +585,30 @@ export default {
     this.getList();
   },
   methods: {
-    format,phoneNumberParts,nickNameParts,
+    format,phoneNumberParts,
+    /** 解析客源中的联系人json，异常时返回空数组 */
+    parseCustomer(customer) {
+      try {
+        const contacts = JSON.parse(customer)
+        return Array.isArray(contacts) ? contacts : []
+      } catch (e) {
+        return []
+      }
+    },
+    /** 用户名称：优先取客源里的联系人姓名（原来显示在手机号列最下方），没有客源时取注册昵称 */
+    userNames(row) {
+      const names = []
+      const tourists = row.tfwSourceTourists || []
+      tourists.forEach(item => {
+        this.parseCustomer(item.customer).forEach(contact => {
+          if (contact && contact.name) names.push(contact.name)
+        })
+      })
+      if (names.length === 0 && row.sysUser && row.sysUser.nickName) {
+        names.push(row.sysUser.nickName)
+      }
+      return names
+    },
     /** 城市查询 */
     handleChange(value) {
       if(this.userCityState) {
@@ -716,6 +749,8 @@ export default {
             this.$modal.msgSuccess("添加沟通成功");
             this.showRemark2 = false;
             this.getRemarks();
+            // 沟通会更新 sys_user.remark（客户类型），刷新当前页数据同步本条记录
+            this.getList();
           })
         }
       });
